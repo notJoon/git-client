@@ -7,11 +7,13 @@ CPPFLAGS = -Iinclude
 LDFLAGS ?=
 LDLIBS  ?=
 
-BIN     := git-client
-BUILD   := build
-SRC     := $(shell find src -name '*.c')
-OBJ     := $(patsubst src/%.c,$(BUILD)/%.o,$(SRC))
-DEP     := $(OBJ:.o=.d)
+BIN        := git-client
+BUILD      := build
+TEST_BUILD := $(BUILD)/tests
+SRC        := $(shell find src -name '*.c')
+OBJ        := $(patsubst src/%.c,$(BUILD)/%.o,$(SRC))
+DEP        := $(OBJ:.o=.d)
+SHA1_TEST  := $(TEST_BUILD)/test_sha1
 
 .PHONY: all build run test clean fmt fmt-check tidy help
 
@@ -29,8 +31,15 @@ $(BUILD)/%.o: src/%.c
 run: build ## Build and run the binary (pass ARGS="...")
 	./$(BUILD)/$(BIN) $(ARGS)
 
-test: ## Run tests (no tests yet)
-	@echo "no tests configured yet — add *.c files under tests/ and wire them here"
+test: ## Run tests
+	@test -f include/sha1.h || { echo "missing include/sha1.h; implement the SHA-1 API from spec.md first"; exit 1; }
+	@test -f src/sha1.c || { echo "missing src/sha1.c; implement the SHA-1 API from spec.md first"; exit 1; }
+	$(MAKE) $(SHA1_TEST)
+	./$(SHA1_TEST)
+
+$(SHA1_TEST): tests/test_sha1.c src/sha1.c include/sha1.h
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/test_sha1.c src/sha1.c $(LDFLAGS) $(LDLIBS)
 
 fmt: ## Format sources with clang-format
 	@find src include tests -name '*.c' -o -name '*.h' | xargs clang-format -i
