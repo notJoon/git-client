@@ -9,10 +9,10 @@
  */
 
 typedef struct {
-	uint32_t state[5];     /* 누적 해시 상태 (h0..h4) */
-	uint64_t bit_count;    /* 처리한 총 비트 수 */
-	uint8_t  block[64];    /* 진행 중인 64바이트 블록 버퍼 */
-	size_t   block_len;    /* 버퍼에 쌓인 바이트 수 */
+	uint32_t state[5];  /* 누적 해시 상태 (h0..h4) */
+	uint64_t bit_count; /* 처리한 총 비트 수 */
+	uint8_t block[64];  /* 진행 중인 64바이트 블록 버퍼 */
+	size_t block_len;   /* 버퍼에 쌓인 바이트 수 */
 } sha1_ctx;
 
 static uint32_t rotl32(uint32_t v, unsigned bits)
@@ -37,10 +37,8 @@ static void sha1_process_block(sha1_ctx *ctx, const uint8_t *block)
 	uint32_t w[80];
 
 	for (int i = 0; i < 16; i++)
-		w[i] = (uint32_t)block[i * 4] << 24 |
-		       (uint32_t)block[i * 4 + 1] << 16 |
-		       (uint32_t)block[i * 4 + 2] << 8 |
-		       (uint32_t)block[i * 4 + 3];
+		w[i] = (uint32_t)block[i * 4] << 24 | (uint32_t)block[i * 4 + 1] << 16 |
+		       (uint32_t)block[i * 4 + 2] << 8 | (uint32_t)block[i * 4 + 3];
 
 	for (int i = 16; i < 80; i++)
 		w[i] = rotl32(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
@@ -121,7 +119,7 @@ static void sha1_final(sha1_ctx *ctx, uint8_t *out)
 	sha1_update(ctx, len_be, 8);
 
 	for (int i = 0; i < 5; i++) {
-		out[i * 4]     = (uint8_t)(ctx->state[i] >> 24);
+		out[i * 4] = (uint8_t)(ctx->state[i] >> 24);
 		out[i * 4 + 1] = (uint8_t)(ctx->state[i] >> 16);
 		out[i * 4 + 2] = (uint8_t)(ctx->state[i] >> 8);
 		out[i * 4 + 3] = (uint8_t)(ctx->state[i]);
@@ -144,8 +142,7 @@ void sha1_compute(const uint8_t *data, size_t len, uint8_t *out)
 	sha1_final(&ctx, out);
 }
 
-void sha1_compute2(const uint8_t *a, size_t a_len, const uint8_t *b,
-		   size_t b_len, uint8_t *out)
+void sha1_compute2(const uint8_t *a, size_t a_len, const uint8_t *b, size_t b_len, uint8_t *out)
 {
 	sha1_ctx ctx;
 
