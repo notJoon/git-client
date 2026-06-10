@@ -35,8 +35,7 @@ static void digest_hex(const uint8_t *data, size_t len, char *hex)
 	sha1_to_hex(digest, hex);
 }
 
-static void digest2_hex(const uint8_t *a, size_t alen, const uint8_t *b,
-			size_t blen, char *hex)
+static void digest2_hex(const uint8_t *a, size_t alen, const uint8_t *b, size_t blen, char *hex)
 {
 	uint8_t digest[SHA1_DIGEST_SIZE];
 
@@ -47,9 +46,8 @@ static void digest2_hex(const uint8_t *a, size_t alen, const uint8_t *b,
 static void test_sha1_to_hex(void)
 {
 	const uint8_t digest[SHA1_DIGEST_SIZE] = {
-		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
-		0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
-		0x0e, 0x0f, 0x10, 0xab, 0xcd, 0xef,
+	    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+	    0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0xab, 0xcd, 0xef,
 	};
 	char hex[41];
 
@@ -57,7 +55,7 @@ static void test_sha1_to_hex(void)
 	sha1_to_hex(digest, hex);
 
 	expect_string("sha1_to_hex encodes lowercase hex", hex,
-		      "000102030405060708090a0b0c0d0e0f10abcdef");
+	              "000102030405060708090a0b0c0d0e0f10abcdef");
 	expect_size("sha1_to_hex writes a 40-char string", strlen(hex), 40);
 	if (hex[40] != '\0') {
 		fprintf(stderr, "FAIL sha1_to_hex NUL terminates hex_out\n");
@@ -73,24 +71,24 @@ static void test_sha1_compute_vectors(void)
 		size_t len;
 		const char *want;
 	} cases[] = {
-		{
-			.name = "empty input",
-			.data = (const uint8_t *)"",
-			.len = 0,
-			.want = "da39a3ee5e6b4b0d3255bfef95601890afd80709",
-		},
-		{
-			.name = "abc",
-			.data = (const uint8_t *)"abc",
-			.len = 3,
-			.want = "a9993e364706816aba3e25717850c26c9cd0d89d",
-		},
-		{
-			.name = "quick brown fox",
-			.data = (const uint8_t *)"The quick brown fox jumps over the lazy dog",
-			.len = 43,
-			.want = "2fd4e1c67a2d28fced849ee1bb76e7391b93eb12",
-		},
+	    {
+	        .name = "empty input",
+	        .data = (const uint8_t *)"",
+	        .len = 0,
+	        .want = "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+	    },
+	    {
+	        .name = "abc",
+	        .data = (const uint8_t *)"abc",
+	        .len = 3,
+	        .want = "a9993e364706816aba3e25717850c26c9cd0d89d",
+	    },
+	    {
+	        .name = "quick brown fox",
+	        .data = (const uint8_t *)"The quick brown fox jumps over the lazy dog",
+	        .len = 43,
+	        .want = "2fd4e1c67a2d28fced849ee1bb76e7391b93eb12",
+	    },
 	};
 
 	for (size_t i = 0; i < ARRAY_LEN(cases); i++) {
@@ -103,12 +101,12 @@ static void test_sha1_compute_vectors(void)
 
 static void test_sha1_compute_binary_input(void)
 {
-	const uint8_t data[] = { 'a', '\0', 'b', '\0', 'c' };
+	const uint8_t data[] = {'a', '\0', 'b', '\0', 'c'};
 	char hex[41];
 
 	digest_hex(data, sizeof(data), hex);
 	expect_string("binary input containing NUL bytes", hex,
-		      "52aa71588488269464589bd81be624861498ca7b");
+	              "52aa71588488269464589bd81be624861498ca7b");
 }
 
 static void test_sha1_compute2(void)
@@ -117,16 +115,15 @@ static void test_sha1_compute2(void)
 
 	digest2_hex((const uint8_t *)"abc", 3, (const uint8_t *)"def", 3, hex);
 	expect_string("sha1_compute2 hashes concatenated buffers", hex,
-		      "1f8ac10f23c5b5bc1167bda84b833e5c057a77d2");
+	              "1f8ac10f23c5b5bc1167bda84b833e5c057a77d2");
 
 	digest2_hex((const uint8_t *)"blob 0", 7, (const uint8_t *)"", 0, hex);
 	expect_string("sha1_compute2 supports empty second buffer", hex,
-		      "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
+	              "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
 
-	digest2_hex((const uint8_t *)"blob 5\0", 7, (const uint8_t *)"hello", 5,
-		    hex);
+	digest2_hex((const uint8_t *)"blob 5\0", 7, (const uint8_t *)"hello", 5, hex);
 	expect_string("sha1_compute2 computes Git blob object IDs", hex,
-		      "b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0");
+	              "b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0");
 }
 
 int main(void)

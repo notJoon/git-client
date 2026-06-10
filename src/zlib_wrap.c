@@ -49,7 +49,7 @@ int zlib_inflate(const uint8_t *src, size_t src_len, uint8_t **dst, size_t *dst_
 		}
 
 		out_size *= 2;
-        // realloc 실패 시 원본 보존
+		// realloc 실패 시 원본 보존
 		uint8_t *new_dst = realloc(*dst, out_size);
 		if (!new_dst) {
 			free(*dst);
