@@ -128,6 +128,23 @@ static void cleanup_repo(void)
 		perror("chdir original cwd");
 }
 
+static void hex_to_bin(const char *hex, uint8_t *out, size_t out_len)
+{
+	for (size_t i = 0; i < out_len; i++) {
+		unsigned int byte;
+
+		sscanf(hex + i * 2, "%2x", &byte);
+		out[i] = (uint8_t)byte;
+	}
+}
+
+static void set_entry(TreeEntry *e, const char *mode, const char *name, const char *sha_hex)
+{
+	snprintf(e->mode, sizeof(e->mode), "%s", mode);
+	snprintf(e->name, sizeof(e->name), "%s", name);
+	hex_to_bin(sha_hex, e->sha1, SHA1_DIGEST_SIZE);
+}
+
 static void test_object_path(void)
 {
 	char path[128];
@@ -234,6 +251,81 @@ static void test_object_read_rejects_missing_object(void)
 	}
 }
 
+/* hello.txt blob ("Hello, Git!\n") shared by the tree fixtures below. */
+#define BLOB_HELLO "670a245535fe6316eb2316c1103b1a88bb519334"
+
+static void test_tree_write_single_file(void)
+{
+	Tree t = {0};
+	uint8_t hash[SHA1_DIGEST_SIZE];
+	char hex[41];
+	char type[8] = {0};
+	uint8_t *out = NULL;
+	size_t out_len = 0;
+	uint8_t want[6 + 1 + 9 + 1 + SHA1_DIGEST_SIZE];
+	size_t pos = 0;
+
+	set_entry(&t.entries[0], "100644", "hello.txt", BLOB_HELLO);
+	t.count = 1;
+
+	expect_int("tree_write stores single-file tree", tree_write(&t, hash), 0);
+	sha1_to_hex(hash, hex);
+	expect_string("single-file tree hash matches Git", hex,
+	              "d3ec8a0f5950fb1f73ce0d1ed55cd6fa7afcdeb9");
+
+	/* Verify the on-disk serialization: "mode SP name NUL <20-byte raw sha>". */
+	expect_int("object_read reads tree object", object_read(hex, type, &out, &out_len), 0);
+	expect_string("tree object reports tree type", type, OBJ_TREE);
+
+	memcpy(want + pos, "100644 hello.txt", 16);
+	pos += 16;
+	want[pos++] = '\0';
+	hex_to_bin(BLOB_HELLO, want + pos, SHA1_DIGEST_SIZE);
+	pos += SHA1_DIGEST_SIZE;
+
+	expect_size("tree entry uses mode SP name NUL sha layout", out_len, pos);
+	expect_bytes("tree entry bytes match Git format", out, want, pos);
+
+	free(out);
+}
+
+static void test_tree_sort_orders_entries(void)
+{
+	Tree t = {0};
+	uint8_t hash[SHA1_DIGEST_SIZE];
+	char hex[41];
+
+	/* Entries supplied out of order; tree_write must sort before hashing. */
+	set_entry(&t.entries[0], "100755", "run.sh", BLOB_HELLO);
+	set_entry(&t.entries[1], "100644", "hello.txt", BLOB_HELLO);
+	t.count = 2;
+
+	expect_int("tree_write stores multi-entry tree", tree_write(&t, hash), 0);
+	sha1_to_hex(hash, hex);
+	expect_string("tree_write sorts entries by name to match Git", hex,
+	              "c14ff4e3c9ff75d15bb997ad80eab92481aa9068");
+}
+
+static void test_tree_sort_directory_vs_file(void)
+{
+	Tree t = {0};
+	uint8_t hash[SHA1_DIGEST_SIZE];
+	char hex[41];
+
+	/*
+	 * Git compares a directory entry as if its name ended in '/', so file
+	 * "hi.txt" sorts before directory "hi". A plain strcmp would reverse them.
+	 */
+	set_entry(&t.entries[0], "40000", "hi", "f115c6d5cfb15ca1a72429900dcaca0fd1057951");
+	set_entry(&t.entries[1], "100644", "hi.txt", BLOB_HELLO);
+	t.count = 2;
+
+	expect_int("tree_write stores dir-and-file tree", tree_write(&t, hash), 0);
+	sha1_to_hex(hash, hex);
+	expect_string("tree_write compares directory name with trailing slash", hex,
+	              "b8bfd21c7237c033e69bc59ada4c9bba1b989a63");
+}
+
 int main(void)
 {
 	setup_repo();
@@ -243,6 +335,9 @@ int main(void)
 	test_object_write_read_text_blob();
 	test_object_write_read_binary_blob();
 	test_object_read_rejects_missing_object();
+	test_tree_write_single_file();
+	test_tree_sort_orders_entries();
+	test_tree_sort_directory_vs_file();
 
 	cleanup_repo();
 
