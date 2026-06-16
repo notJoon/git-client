@@ -29,10 +29,9 @@ make help       # list targets
 ## Layout
 
 ```
-src/
-  main.c            entry point
-  cli/commands/     command implementations
-  core/             core git logic (objects, refs, index, ...)
-include/git-client/ public headers
-tests/              tests (framework TBD)
+main.c              entry point
+object.c / .h       object store (blob, tree, commit)
+sha1.c / .h         SHA-1 hashing
+zlib_wrap.c / .h    zlib compression wrappers
+tests/              tests
 ```
