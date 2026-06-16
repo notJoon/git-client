@@ -133,4 +133,16 @@ typedef struct {
 int commit_write(const Commit *c, uint8_t *hash_out);
 int commit_read(const char *hex, Commit *c);
 
+// -- 디버그/시각화 유틸리티
+//
+// git 오브젝트가 실제로 어떤 형태로 .git/objects에 저장되고 서로 어떻게 연결되는지 시각화.
+
+// 단일 오브젝트의 내부 저장 형태(경로/타입/크기/본문)를 사람이 읽기 좋게 출력.
+// 저장되는 raw 형식 "<type> <size>\0<content>"를 그대로 풀어서 보여준다.
+void object_debug_print(const char *hex_hash);
+
+// hex_hash를 루트로 오브젝트 그래프(commit -> tree -> blob)를
+// 트리 다이어그램 형태로 재귀 출력한다.
+void object_print_graph(const char *hex_hash);
+
 #endif

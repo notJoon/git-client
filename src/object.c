@@ -505,3 +505,210 @@ int commit_read(const char *hex, Commit *c)
 	free(data);
 	return 0;
 }
+
+// -- 디버그/시각화 유틸리티
+
+#define GRAPH_MAX_DEPTH 64
+#define GRAPH_BLOB_PREVIEW 48 /* blob 본문 미리보기 최대 바이트 */
+
+// 본문을 출력 가능한 형태로 이스케이프해서 찍는다. 바이너리/제어문자 안전.
+static void print_escaped(const uint8_t *data, size_t len, size_t max)
+{
+	size_t n = len < max ? len : max;
+
+	for (size_t i = 0; i < n; i++) {
+		unsigned char ch = data[i];
+
+		if (ch == '\n') {
+			fputs("\\n", stdout);
+		} else if (ch == '\t') {
+			fputs("\\t", stdout);
+		} else if (ch == '\r') {
+			fputs("\\r", stdout);
+		} else if (ch >= 0x20 && ch < 0x7f) {
+			putchar(ch);
+		} else {
+			printf("\\x%02x", ch);
+		}
+	}
+
+	if (len > max) {
+		fputs("...", stdout);
+	}
+}
+
+// 트리 엔트리의 타입 문자열 (ls-tree 표기와 동일).
+static const char *entry_type(const TreeEntry *e)
+{
+	return e->mode == MODE_DIR ? OBJ_TREE : OBJ_BLOB;
+}
+
+void object_debug_print(const char *hex_hash)
+{
+	char type[8];
+	uint8_t *data = NULL;
+	size_t len = 0;
+	char path[512];
+
+	if (!hex_hash) {
+		return;
+	}
+
+	object_path(hex_hash, path, sizeof(path));
+
+	if (object_read(hex_hash, type, &data, &len) < 0) {
+		printf("object %s: 읽기 실패 (%s)\n", hex_hash, path);
+		return;
+	}
+
+	printf("=== object %s ===\n", hex_hash);
+	printf("  path  : %s\n", path);
+	printf("  type  : %s\n", type);
+	printf("  size  : %zu bytes\n", len);
+	// 압축 전 raw 형식: "<type> <size>\0<content>"
+	printf("  stored: \"%s %zu\\0\" + <content %zu bytes> (zlib deflate)\n", type, len, len);
+	printf("  ----- content -----\n");
+
+	if (strcmp(type, OBJ_TREE) == 0) {
+		Tree t;
+
+		if (tree_read(hex_hash, &t) == 0) {
+			for (int i = 0; i < t.count; i++) {
+				TreeEntry *e = &t.entries[i];
+				char ehex[GIT_HEX_STR_SIZE];
+
+				sha1_to_hex(e->sha1, ehex);
+				printf("  %-6s %s %s\t%s\n", mode_to_str(e->mode), entry_type(e),
+				       ehex, e->name);
+			}
+		}
+	} else if (strcmp(type, OBJ_COMMIT) == 0) {
+		// 커밋 본문은 텍스트라 그대로 출력
+		fwrite(data, 1, len, stdout);
+		if (len == 0 || data[len - 1] != '\n') {
+			putchar('\n');
+		}
+	} else {
+		// blob 등: 제어문자를 이스케이프해서 출력
+		printf("  \"");
+		print_escaped(data, len, len);
+		printf("\"\n");
+	}
+
+	free(data);
+}
+
+// hex를 루트로 오브젝트 그래프를 재귀 출력한다.
+//   head: 이 노드 줄 앞에 붙는 접두사 (커넥터 포함)
+//   cont: 이 노드의 자식 줄에 이어 붙는 접두사 (수직선 포함)
+//   label: 트리 엔트리에서 넘어온 "<mode> <type> <name>" 라벨 (루트면 NULL)
+static void graph_rec(const char *hex, const char *label, const char *head, const char *cont,
+                      int depth)
+{
+	char type[8];
+	uint8_t *data = NULL;
+	size_t len = 0;
+	char path[512];
+
+	object_path(hex, path, sizeof(path));
+
+	if (object_read(hex, type, &data, &len) < 0) {
+		printf("%s%.7s  <읽기 실패: %s>\n", head, hex, path);
+		return;
+	}
+
+	// 노드 한 줄: [접두사] [라벨 또는 (타입)] [짧은 해시] [저장 경로]
+	if (label) {
+		printf("%s%s  %.7s  %s\n", head, label, hex, path);
+	} else {
+		printf("%s(%s)  %.7s  %s\n", head, type, hex, path);
+	}
+
+	if (strcmp(type, OBJ_BLOB) == 0) {
+		// blob은 본문 미리보기를 자식 줄로 한 줄 더 보여준다.
+		printf("%s    ↳ \"", cont);
+		print_escaped(data, len, GRAPH_BLOB_PREVIEW);
+		printf("\" (%zu bytes)\n", len);
+	} else if (strcmp(type, OBJ_TREE) == 0) {
+		Tree t;
+
+		if (depth > 0 && tree_read(hex, &t) == 0) {
+			for (int i = 0; i < t.count; i++) {
+				TreeEntry *e = &t.entries[i];
+				int last = (i == t.count - 1);
+				char child_head[1024];
+				char child_cont[1024];
+				char label_buf[320];
+				char ehex[GIT_HEX_STR_SIZE];
+
+				snprintf(child_head, sizeof(child_head), "%s%s", cont,
+				         last ? "└── " : "├── ");
+				snprintf(child_cont, sizeof(child_cont), "%s%s", cont,
+				         last ? "    " : "│   ");
+
+				sha1_to_hex(e->sha1, ehex);
+				snprintf(label_buf, sizeof(label_buf), "%-6s %s %s",
+				         mode_to_str(e->mode), entry_type(e), e->name);
+
+				graph_rec(ehex, label_buf, child_head, child_cont, depth - 1);
+			}
+		}
+	} else if (strcmp(type, OBJ_COMMIT) == 0) {
+		Commit c;
+
+		if (commit_read(hex, &c) == 0) {
+			char msg[80];
+			char *nl;
+			int total = 1 + c.parent_count; // tree 1개 + parent N개
+			int idx = 0;
+
+			// 커밋 메타데이터를 정보 줄로 출력
+			printf("%s│  author : %s <%s>\n", cont, c.author.name, c.author.email);
+
+			snprintf(msg, sizeof(msg), "%s", c.message);
+			nl = strchr(msg, '\n');
+			if (nl) {
+				*nl = '\0';
+			}
+			printf("%s│  message: %s\n", cont, msg);
+			printf("%s│\n", cont);
+
+			// tree 자식 (재귀)
+			{
+				int last = (idx == total - 1);
+				char child_head[1024];
+				char child_cont[1024];
+
+				snprintf(child_head, sizeof(child_head), "%s%s", cont,
+				         last ? "└── " : "├── ");
+				snprintf(child_cont, sizeof(child_cont), "%s%s", cont,
+				         last ? "    " : "│   ");
+
+				graph_rec(c.tree_hex, "tree", child_head, child_cont, depth - 1);
+				idx++;
+			}
+
+			// parent 들은 히스토리 폭주를 막기 위해 재귀하지 않고 참조 줄만 출력
+			for (int i = 0; i < c.parent_count; i++) {
+				int last = (idx == total - 1);
+				char ppath[512];
+
+				object_path(c.parent_hex[i], ppath, sizeof(ppath));
+				printf("%s%sparent  %.7s  %s\n", cont, last ? "└── " : "├── ",
+				       c.parent_hex[i], ppath);
+				idx++;
+			}
+		}
+	}
+
+	free(data);
+}
+
+void object_print_graph(const char *hex_hash)
+{
+	if (!hex_hash) {
+		return;
+	}
+
+	graph_rec(hex_hash, NULL, "", "", GRAPH_MAX_DEPTH);
+}
