@@ -140,7 +140,12 @@ static void hex_to_bin(const char *hex, uint8_t *out, size_t out_len)
 
 static void set_entry(TreeEntry *e, const char *mode, const char *name, const char *sha_hex)
 {
-	snprintf(e->mode, sizeof(e->mode), "%s", mode);
+	FileMode fm;
+	if (mode_parse(mode, &fm) != 0) {
+		fprintf(stderr, "Invalid mode: %s\n", mode);
+		exit(EXIT_FAILURE);
+	}
+	e->mode = fm;
 	snprintf(e->name, sizeof(e->name), "%s", name);
 	hex_to_bin(sha_hex, e->sha1, SHA1_DIGEST_SIZE);
 }
@@ -326,6 +331,85 @@ static void test_tree_sort_directory_vs_file(void)
 	              "b8bfd21c7237c033e69bc59ada4c9bba1b989a63");
 }
 
+static void test_tree_read_round_trip(void)
+{
+	Tree wt = {0};
+	Tree rt = {0};
+	uint8_t hash[SHA1_DIGEST_SIZE];
+	char hex[41];
+	uint8_t want_sha[SHA1_DIGEST_SIZE];
+
+	/* Supplied out of order on purpose; tree_write sorts before storing. */
+	set_entry(&wt.entries[0], "100755", "run.sh", BLOB_HELLO);
+	set_entry(&wt.entries[1], "100644", "hello.txt", BLOB_HELLO);
+	wt.count = 2;
+
+	expect_int("tree_write stores tree for round-trip", tree_write(&wt, hash), 0);
+	sha1_to_hex(hash, hex);
+
+	expect_int("tree_read reads tree object", tree_read(hex, &rt), 0);
+	expect_int("tree_read restores entry count", rt.count, 2);
+
+	hex_to_bin(BLOB_HELLO, want_sha, SHA1_DIGEST_SIZE);
+
+	/* Entries come back in stored (sorted) order: hello.txt before run.sh. */
+	expect_int("tree_read parses first entry mode", (int)rt.entries[0].mode, MODE_REG);
+	expect_string("tree_read restores first entry name", rt.entries[0].name, "hello.txt");
+	expect_bytes("tree_read restores first entry sha", rt.entries[0].sha1, want_sha,
+	             SHA1_DIGEST_SIZE);
+
+	expect_int("tree_read parses second entry mode", (int)rt.entries[1].mode, MODE_EXEC);
+	expect_string("tree_read restores second entry name", rt.entries[1].name, "run.sh");
+	expect_bytes("tree_read restores second entry sha", rt.entries[1].sha1, want_sha,
+	             SHA1_DIGEST_SIZE);
+}
+
+static void test_tree_read_rejects_non_tree(void)
+{
+	uint8_t hash[SHA1_DIGEST_SIZE];
+	char hex[41];
+	Tree t = {0};
+
+	expect_int("object_write stores blob for type check",
+	           object_write(OBJ_BLOB, (const uint8_t *)"hi\n", 3, hash), 0);
+	sha1_to_hex(hash, hex);
+
+	expect_int("tree_read rejects non-tree object", tree_read(hex, &t), -1);
+}
+
+static void test_tree_read_rejects_missing(void)
+{
+	Tree t = {0};
+
+	expect_int("tree_read rejects missing object",
+	           tree_read("0000000000000000000000000000000000000000", &t), -1);
+}
+
+static void test_tree_read_rejects_invalid_mode(void)
+{
+	uint8_t payload[6 + 1 + 3 + 1 + SHA1_DIGEST_SIZE];
+	size_t pos = 0;
+	uint8_t hash[SHA1_DIGEST_SIZE];
+	char hex[41];
+	Tree t = {0};
+
+	/*
+	 * Craft a tree payload whose mode "040000" has an invalid leading zero.
+	 * tree_read must reject it via mode_parse rather than accept a bad mode.
+	 */
+	memcpy(payload + pos, "040000 dir", 10);
+	pos += 10;
+	payload[pos++] = '\0';
+	hex_to_bin(BLOB_HELLO, payload + pos, SHA1_DIGEST_SIZE);
+	pos += SHA1_DIGEST_SIZE;
+
+	expect_int("object_write stores malformed tree payload",
+	           object_write(OBJ_TREE, payload, pos, hash), 0);
+	sha1_to_hex(hash, hex);
+
+	expect_int("tree_read rejects entry with invalid mode", tree_read(hex, &t), -1);
+}
+
 int main(void)
 {
 	setup_repo();
@@ -338,6 +422,10 @@ int main(void)
 	test_tree_write_single_file();
 	test_tree_sort_orders_entries();
 	test_tree_sort_directory_vs_file();
+	test_tree_read_round_trip();
+	test_tree_read_rejects_non_tree();
+	test_tree_read_rejects_missing();
+	test_tree_read_rejects_invalid_mode();
 
 	cleanup_repo();
 
