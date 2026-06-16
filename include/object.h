@@ -106,4 +106,31 @@ int tree_read(const char *hex, Tree *t);
 // 저장 전 필수로 호출해야 함.
 void tree_sort(Tree *t);
 
+// -- Commit 오브젝트 관련 정의
+
+#define MAX_PARENTS 2
+#define GIT_HEX_SIZE 40
+#define GIT_HEX_STR_SIZE (GIT_HEX_SIZE + 1)
+
+typedef struct {
+	char name[128];
+	char email[128];
+	long time;
+	char tz[6];
+} Signature;
+
+typedef struct {
+	char tree_hex[GIT_HEX_STR_SIZE];
+	char parent_hex[MAX_PARENTS][GIT_HEX_STR_SIZE]; // 빈 문자열이면 없음.
+	int parent_count;
+
+	Signature author;
+	Signature committer;
+
+	char message[4096];
+} Commit;
+
+int commit_write(const Commit *c, uint8_t *hash_out);
+int commit_read(const char *hex, Commit *c);
+
 #endif

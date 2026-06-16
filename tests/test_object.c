@@ -410,6 +410,101 @@ static void test_tree_read_rejects_invalid_mode(void)
 	expect_int("tree_read rejects entry with invalid mode", tree_read(hex, &t), -1);
 }
 
+static void set_sig(Signature *s, const char *name, const char *email, long time, const char *tz)
+{
+	snprintf(s->name, sizeof(s->name), "%s", name);
+	snprintf(s->email, sizeof(s->email), "%s", email);
+	s->time = time;
+	snprintf(s->tz, sizeof(s->tz), "%s", tz);
+}
+
+static void test_commit_write_golden(void)
+{
+	Commit c = {0};
+	uint8_t hash[SHA1_DIGEST_SIZE];
+	char hex[41];
+	char type[8] = {0};
+	uint8_t *out = NULL;
+	size_t out_len = 0;
+
+	snprintf(c.tree_hex, sizeof(c.tree_hex), "d3ec8a0f5950fb1f73ce0d1ed55cd6fa7afcdeb9");
+	set_sig(&c.author, "Alice", "alice@example.com", 1700000000L, "+0900");
+	set_sig(&c.committer, "Alice", "alice@example.com", 1700000000L, "+0900");
+	/* Trailing newline must be normalized away so the SHA is stable. */
+	snprintf(c.message, sizeof(c.message), "Initial commit\n");
+
+	expect_int("commit_write stores commit", commit_write(&c, hash), 0);
+	sha1_to_hex(hash, hex);
+	expect_string("commit hash matches Git for identical bytes", hex,
+	              "91f1c015a3b15c882926f4702999631339769c25");
+
+	expect_int("object_read reads commit", object_read(hex, type, &out, &out_len), 0);
+	expect_string("commit object reports commit type", type, OBJ_COMMIT);
+
+	free(out);
+}
+
+static void test_commit_round_trip(void)
+{
+	Commit wc = {0};
+	Commit rc = {0};
+	uint8_t hash[SHA1_DIGEST_SIZE];
+	char hex[41];
+
+	snprintf(wc.tree_hex, sizeof(wc.tree_hex), "d3ec8a0f5950fb1f73ce0d1ed55cd6fa7afcdeb9");
+	snprintf(wc.parent_hex[0], sizeof(wc.parent_hex[0]),
+	         "1234567890123456789012345678901234567890");
+	wc.parent_count = 1;
+	set_sig(&wc.author, "Bob", "bob@example.com", 1700001234L, "-0500");
+	set_sig(&wc.committer, "Carol", "carol@example.com", 1700005678L, "+0000");
+	snprintf(wc.message, sizeof(wc.message), "Second commit");
+
+	expect_int("commit_write stores commit for round-trip", commit_write(&wc, hash), 0);
+	sha1_to_hex(hash, hex);
+
+	expect_int("commit_read reads commit", commit_read(hex, &rc), 0);
+	expect_string("commit_read restores tree", rc.tree_hex, wc.tree_hex);
+	expect_int("commit_read restores parent count", rc.parent_count, 1);
+	expect_string("commit_read restores parent", rc.parent_hex[0], wc.parent_hex[0]);
+	expect_string("commit_read restores author name", rc.author.name, "Bob");
+	expect_string("commit_read restores author email", rc.author.email, "bob@example.com");
+	expect_int("commit_read restores author time", (int)rc.author.time, 1700001234);
+	expect_string("commit_read restores author tz", rc.author.tz, "-0500");
+	expect_string("commit_read restores committer name", rc.committer.name, "Carol");
+	expect_string("commit_read restores committer tz", rc.committer.tz, "+0000");
+	expect_string("commit_read restores message", rc.message, "Second commit");
+}
+
+static void test_commit_write_rejects_null(void)
+{
+	Commit c = {0};
+	uint8_t hash[SHA1_DIGEST_SIZE];
+
+	expect_int("commit_write rejects NULL commit", commit_write(NULL, hash), -1);
+	expect_int("commit_write rejects NULL hash_out", commit_write(&c, NULL), -1);
+}
+
+static void test_commit_read_rejects_missing(void)
+{
+	Commit c = {0};
+
+	expect_int("commit_read rejects missing object",
+	           commit_read("0000000000000000000000000000000000000000", &c), -1);
+}
+
+static void test_commit_read_rejects_non_commit(void)
+{
+	uint8_t hash[SHA1_DIGEST_SIZE];
+	char hex[41];
+	Commit c = {0};
+
+	expect_int("object_write stores blob for commit type check",
+	           object_write(OBJ_BLOB, (const uint8_t *)"hi\n", 3, hash), 0);
+	sha1_to_hex(hash, hex);
+
+	expect_int("commit_read rejects non-commit object", commit_read(hex, &c), -1);
+}
+
 int main(void)
 {
 	setup_repo();
@@ -426,6 +521,11 @@ int main(void)
 	test_tree_read_rejects_non_tree();
 	test_tree_read_rejects_missing();
 	test_tree_read_rejects_invalid_mode();
+	test_commit_write_golden();
+	test_commit_round_trip();
+	test_commit_write_rejects_null();
+	test_commit_read_rejects_missing();
+	test_commit_read_rejects_non_commit();
 
 	cleanup_repo();
 

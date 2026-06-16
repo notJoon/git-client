@@ -1,9 +1,13 @@
 #include "object.h"
 #include "sha1.h"
 #include "zlib_wrap.h"
+
+#include <limits.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include <sys/stat.h>
 
 int object_write(const char *type, const uint8_t *content, size_t content_len, uint8_t *hash_out)
@@ -349,5 +353,155 @@ static int add_size(size_t *out, size_t value)
 		return -1;
 
 	*out += value;
+	return 0;
+}
+
+// -- Commit 직렬화 기능
+
+static int buf_appendf(char *buf, size_t buf_size, size_t *pos, const char *fmt, ...)
+{
+	va_list ap;
+	int n;
+
+	if (*pos >= buf_size) {
+		return -1;
+	}
+
+	va_start(ap, fmt);
+	n = vsnprintf(buf + *pos, buf_size - *pos, fmt, ap);
+	va_end(ap);
+
+	if (n < 0 || (size_t)n >= buf_size - *pos) {
+		return -1;
+	}
+
+	*pos += (size_t)n;
+	return 0;
+}
+
+int commit_write(const Commit *c, uint8_t *hash_out)
+{
+	char buf[8192];
+	size_t pos = 0;
+
+	if (!c || !hash_out) {
+		return -1;
+	}
+
+	if (buf_appendf(buf, sizeof(buf), &pos, "tree %s\n", c->tree_hex) < 0) {
+		return -1;
+	}
+
+	for (int i = 0; i < c->parent_count; i++) {
+		if (buf_appendf(buf, sizeof(buf), &pos, "parent %s\n", c->parent_hex[i]) < 0) {
+			return -1;
+		}
+	}
+
+	if (buf_appendf(buf, sizeof(buf), &pos, "author %s <%s> %ld %s\n", c->author.name,
+	                c->author.email, c->author.time, c->author.tz) < 0) {
+		return -1;
+	}
+
+	if (buf_appendf(buf, sizeof(buf), &pos, "committer %s <%s> %ld %s\n", c->committer.name,
+	                c->committer.email, c->committer.time, c->committer.tz) < 0) {
+		return -1;
+	}
+
+	if (buf_appendf(buf, sizeof(buf), &pos, "\n") < 0) {
+		return -1;
+	}
+
+	size_t msg_len = strlen(c->message);
+	while (msg_len > 0 && c->message[msg_len - 1] == '\n') {
+		msg_len--;
+	}
+
+	if (msg_len > INT_MAX) {
+		return -1;
+	}
+
+	if (buf_appendf(buf, sizeof(buf), &pos, "%.*s", (int)msg_len, c->message) < 0) {
+		return -1;
+	}
+
+	return object_write(OBJ_COMMIT, (const uint8_t *)buf, pos, hash_out);
+}
+
+// 이름 끝의 공백을 제거한다. git의 "name <email>" 포맷에서 '<' 직전 공백이
+// 파싱 결과에 따라붙으므로 한 칸씩 잘라낸다.
+static void rstrip_space(char *s)
+{
+	size_t n = strlen(s);
+	while (n > 0 && s[n - 1] == ' ') {
+		s[--n] = '\0';
+	}
+}
+
+int commit_read(const char *hex, Commit *c)
+{
+	char type[8];
+	uint8_t *data = NULL;
+	size_t data_len = 0;
+
+	if (!hex || !c) {
+		return -1;
+	}
+
+	if (object_read(hex, type, &data, &data_len) < 0) {
+		return -1;
+	}
+
+	if (strcmp(type, OBJ_COMMIT) != 0) {
+		free(data);
+		return -1;
+	}
+
+	memset(c, 0, sizeof(Commit));
+	char *p = (char *)data;
+
+	// 헤더를 한 줄씩 파싱
+	// 빈 줄(헤더 종료)를 만나면 중단.
+	while (*p) {
+		char *eol = strchr(p, '\n');
+		size_t line_len = eol ? (size_t)(eol - p) : strlen(p);
+
+		if (line_len == 0) { // 빈줄 -> 헤더 끝
+			if (eol) {   // 메시지 시작으로 이동
+				p = eol + 1;
+			}
+			break;
+		}
+
+		if (strncmp(p, "tree ", 5) == 0 && line_len >= 5 + 40) {
+			memcpy(c->tree_hex, p + 5, 40);
+			c->tree_hex[40] = '\0';
+		} else if (strncmp(p, "parent ", 7) == 0 && line_len >= 7 + 40 &&
+		           c->parent_count < MAX_PARENTS) {
+			memcpy(c->parent_hex[c->parent_count], p + 7, 40);
+			c->parent_hex[c->parent_count][40] = '\0';
+			c->parent_count++;
+		} else if (strncmp(p, "author ", 7) == 0) {
+			sscanf(p + 7, "%127[^<]<%127[^>]> %ld %5s", c->author.name, c->author.email,
+			       &c->author.time, c->author.tz);
+			rstrip_space(c->author.name);
+		} else if (strncmp(p, "committer ", 10) == 0) {
+			sscanf(p + 10, "%127[^<]<%127[^>]> %ld %5s", c->committer.name,
+			       c->committer.email, &c->committer.time, c->committer.tz);
+			rstrip_space(c->committer.name);
+		}
+
+		if (!eol) {
+			p += line_len; // 개행 없는 마지막 줄
+			break;
+		}
+		p = eol + 1;
+	}
+
+	// 남은 부분은 커밋 메시지
+	strncpy(c->message, p, sizeof(c->message) - 1);
+	c->message[sizeof(c->message) - 1] = '\0';
+
+	free(data);
 	return 0;
 }
