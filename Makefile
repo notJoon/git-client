@@ -16,6 +16,7 @@ DEP        := $(OBJ:.o=.d)
 SHA1_TEST  := $(TEST_BUILD)/test_sha1
 ZLIB_TEST  := $(TEST_BUILD)/test_zlib
 OBJECT_TEST := $(TEST_BUILD)/test_object
+REFS_TEST  := $(TEST_BUILD)/test_refs
 
 .PHONY: all build run test clean fmt fmt-check tidy help
 
@@ -43,9 +44,11 @@ test: ## Run tests
 	$(MAKE) $(SHA1_TEST)
 	$(MAKE) $(ZLIB_TEST)
 	$(MAKE) $(OBJECT_TEST)
+	$(MAKE) $(REFS_TEST)
 	./$(SHA1_TEST)
 	./$(ZLIB_TEST)
 	./$(OBJECT_TEST)
+	./$(REFS_TEST)
 
 $(SHA1_TEST): tests/test_sha1.c sha1.c sha1.h
 	@mkdir -p $(dir $@)
@@ -58,6 +61,10 @@ $(ZLIB_TEST): tests/test_zlib.c zlib_wrap.c zlib_wrap.h
 $(OBJECT_TEST): tests/test_object.c object.c sha1.c zlib_wrap.c object.h sha1.h zlib_wrap.h
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/test_object.c object.c sha1.c zlib_wrap.c $(LDFLAGS) $(LDLIBS)
+
+$(REFS_TEST): tests/test_refs.c refs.c refs.h
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/test_refs.c refs.c $(LDFLAGS) $(LDLIBS)
 
 fmt: ## Format sources with clang-format
 	@clang-format -i *.c *.h tests/*.c
