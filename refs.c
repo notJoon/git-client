@@ -13,10 +13,10 @@ static void ref_path(const char *ref_name, char *path, size_t sz)
 
 /*
  * 현재는 loose ref(.git/refs/...)만 읽는다.
- * .git/packed-refs는 아직 보지 않으므로, 외부 git이 pack-refs로 정리한 레포의 
- * ref는 누락될 수 있음. 
+ * .git/packed-refs는 아직 보지 않으므로, 외부 git이 pack-refs로 정리한 레포의
+ * ref는 누락될 수 있음.
  *
- * TODO: 현재 구현체는 항상 loose ref만 쓰므로 문제없지만, 
+ * TODO: 현재 구현체는 항상 loose ref만 쓰므로 문제없지만,
  *       merge 기능 구현 이후 packed-refs 읽기 지원 추가 여부 검토.
  */
 int ref_read(const char *ref_name, char *hex_out)
