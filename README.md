@@ -11,7 +11,7 @@ A git client written in C.
 ## Build & run
 
 ```sh
-make build              # compile to build/git-client
+make build              # compile to build/jg
 make run                # build and run
 make run ARGS="status"  # pass arguments
 ```

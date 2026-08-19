@@ -7,7 +7,7 @@ CPPFLAGS = -I.
 LDFLAGS ?=
 LDLIBS  ?= -lz
 
-BIN        := git-client
+BIN        := jg
 BUILD      := build
 TEST_BUILD := $(BUILD)/tests
 SRC        := $(wildcard *.c)
@@ -35,7 +35,8 @@ $(BUILD)/%.o: %.c
 run: build ## Build and run the binary (pass ARGS="...")
 	./$(BUILD)/$(BIN) $(ARGS)
 
-test: ## Run tests
+test: build ## Run tests
+	@status=0; ./$(BUILD)/$(BIN) >/dev/null 2>&1 || status=$$?; test $$status -eq 1
 	@test -f sha1.h || { echo "missing sha1.h; implement the SHA-1 API from spec.md first"; exit 1; }
 	@test -f sha1.c || { echo "missing sha1.c; implement the SHA-1 API from spec.md first"; exit 1; }
 	@test -f zlib_wrap.h || { echo "missing zlib_wrap.h; implement the zlib API from spec.md first"; exit 1; }
