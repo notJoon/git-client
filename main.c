@@ -302,6 +302,142 @@ static int cmd_commit(int argc, char **argv) {
     return 0;
 }
 
+static int cmd_branch(int argc, char **argv) {
+    if (argc == 0) {
+        // 브랜치 목록 출력
+        char names[64][128];
+        int  n = branch_list(names, 64);
+        char current[128] = {0};
+
+        head_branch(current, sizeof(current));
+        for (int i = 0; i < n; i++) {
+            printf("%s %s\n",
+                strcmp(names[i], current) == 0 ? "*" : " ",
+                names[i]);
+        }
+        return 0;
+    }
+
+    // 새 브랜치 생성
+    char start_hex[41];
+    if (head_read(start_hex) < 0) {
+        fprintf(stderr, "fatal: no commit yet\n");
+        return -1;
+    }
+    return branch_create(argv[0], start_hex);
+}
+
+static int cmd_checkout(int argc, char **argv) {
+    if (argc < 1) return -1;
+    const char *branch = argv[0];
+
+    // 브랜치가 존재하는지 검사
+    char refname[256];
+    snprintf(refname, sizeof(refname), "refs/heads/%s", branch);
+    char hex[41];
+    if (ref_read(refname, hex) < 0) {
+        fprintf(stderr, "error: branch '%s' not found\n", branch);
+        return -1;
+    }
+
+    // working tree 업데이트
+    //
+    // FIXME: 지금은 커밋의 tree를 현재 디렉토리에 적용하는 식으로 단순하게 처리함.
+    // 이후 필요하다면 스펙 확인 후 고도화 고려.
+    Commit c;
+    if (commit_read(hex, &c) < 0) return -1;
+    checkout_tree(c.tree_hex, ".");
+
+    // Index를 브랜치 tree 기준으로 재구성
+    Index *idx = malloc(sizeof(*idx));
+    if (!idx) return -1;
+    idx->count = 0;
+    if (index_from_tree(idx, c.tree_hex, "") < 0 || index_write(idx) < 0) {
+        free(idx);
+        return -1;
+    }
+    free(idx);
+
+    // HEAD 업데이트
+    if (head_set_branch(branch) < 0) return -1;
+
+    printf("Switched to branch %s\n", branch);
+    return 0;
+}
+
+/*
+ * 트리 오브젝트의 내용을 실제 파일 시스템에 기록
+ * prefix: 현재 상태 경로
+ */
+void checkout_tree(const char *tree_hex, const char *prefix) {
+    Tree t;
+    if (tree_read(tree_hex, &t) < 0) return;
+
+    for (int i = 0; i < t.count; i++) {
+        TreeEntry *e = &t.entries[i];
+        char full_path[512];
+        snprintf(full_path, sizeof(full_path), "%s/%s", prefix, e->name);
+
+        char sha1_hex[41];
+        sha1_to_hex(e->sha1, sha1_hex);
+
+        if (e->mode == MODE_DIR) {
+            mkdir(full_path, 0755);
+            checkout_tree(sha1_hex, full_path);
+        } else {
+            char type[8]; uint8_t *data = NULL; size_t data_len = 0;
+            if (object_read(sha1_hex, type, &data, &data_len) < 0) continue;
+
+            FILE *f = fopen(full_path, "wb");
+            if (f) {
+                fwrite(data, 1, data_len, f);
+                fclose(f);
+                if (e->mode == MODE_EXEC) chmod(full_path, 0755);
+            }
+            free(data);
+        }
+    }
+}
+
+/*
+ * 트리 오브젝트를 재귀적으로 읽은 다음 인덱스를 재구성함. 특히,
+ * checkout이나 merge 시에 사용함.
+ *
+ * prefix: "" 또는 "src/" 처럼 끝에 "/"를 포함해야 함.
+ * stat 정보는 0으로 두고, 이후 add나 status 시 채워 짐.
+ */
+int index_from_tree(Index *idx, const char *tree_hex, const char *prefix) {
+    Tree t;
+    if (tree_read(tree_hex, &t) < 0) return -1;
+
+    for (int i = 0; i < t.count; i++) {
+        TreeEntry *e = &t.entries[i];
+        char sha1_hex[41];
+        sha1_to_hex(e->sha1, sha1_hex);
+
+        if (e->mode == MODE_DIR) {
+            char sub[4096];
+            snprintf(sub, sizeof(sub), "%s%s/", prefix, e->name);
+            if (index_from_tree(idx, sha1_hex, sub) < 0) return -1;
+        } else {
+            if (idx->count >= INDEX_MAX_ENTRIES) return -1;
+            IndexEntry *ie = &idx->entries[idx->count++];
+            memset(ie, 0, sizeof(*ie));
+            ie->mode = (uint32_t)e->mode;
+            ie->stage = 0;
+            memcpy(ie->sha1, e->sha1, 20);
+            snprintf(ie->path, sizeof(ie->path), "%s%s", prefix, e->name);
+        }
+    }
+    return 0;
+}
+
+/*
+ * TODO: checkout_tree는 대상 트리에 존재하는 파일만 기록할 뿐, working tree에는
+ * 있지만 대상 트리에 없는 파일을 삭제하지는 않는다. 실제 git 처럼 브랜치 전환 시 사라진
+ * 파일을 지우려면, 전환 전의 인덱스와 트리하고 비교해 제거하는 단계를 별도로 구현해야 함.
+ */
+
 int main(int argc, char **argv) {
     if (argc < 2) { fprintf(stderr, "usage: jg <command>\n"); return 1; }
 
@@ -313,6 +449,8 @@ int main(int argc, char **argv) {
     else if (strcmp(cmd, "write-tree")   == 0) return cmd_write_tree();
     else if (strcmp(cmd, "commit-tree")  == 0) return cmd_commit_tree(argc-2, argv+2);
     else if (strcmp(cmd, "commit")       == 0) return cmd_commit(argc-2, argv+2);
-    // TODO: merge, branch, checkout 추가
+    else if (strcmp(cmd, "branch")       == 0) return cmd_branch(argc-2, argv+2);
+    else if (strcmp(cmd, "checkout")     == 0) return cmd_checkout(argc-2, argv+2);
+    // TODO: merge 추가
     else { fprintf(stderr, "unknown command: %s\n", cmd); return 1; }
 }
