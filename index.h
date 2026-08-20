@@ -1,35 +1,35 @@
 #ifndef INDEX_H
 #define INDEX_H
 
+#include "sha1.h"
 #include <stdint.h>
 #include <time.h>
-#include "sha1.h"
 
 #define INDEX_MAX_ENTRIES 65536
 
 typedef struct {
-    uint32_t ctime_sec, ctime_nsec;
-    uint32_t mtime_sec, mtime_nsec;
-    uint32_t dev, ino;
-    uint32_t mode;
-    uint32_t uid, gid;
-    uint32_t size;
-    uint8_t sha1[SHA1_DIGEST_SIZE];
-    uint16_t flags; /* 하위 12비트 (경로 길이) */
+	uint32_t ctime_sec, ctime_nsec;
+	uint32_t mtime_sec, mtime_nsec;
+	uint32_t dev, ino;
+	uint32_t mode;
+	uint32_t uid, gid;
+	uint32_t size;
+	uint8_t sha1[SHA1_DIGEST_SIZE];
+	uint16_t flags; /* 하위 12비트 (경로 길이) */
 
-    /*
-     * 정상 0
-     * ancestoe  1
-     * ours 2
-     * theirs 3
-     */
-    uint8_t stage;
-    char path[4096];
+	/*
+	 * 정상 0
+	 * ancestoe  1
+	 * ours 2
+	 * theirs 3
+	 */
+	uint8_t stage;
+	char path[4096];
 } IndexEntry;
 
 typedef struct {
-    IndexEntry entries[INDEX_MAX_ENTRIES];
-    int count;
+	IndexEntry entries[INDEX_MAX_ENTRIES];
+	int count;
 } Index;
 
 /* .git/index 읽기/쓰기 */

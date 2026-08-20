@@ -311,10 +311,10 @@ int index_write(const Index *idx)
 		memset(fixed, 0, 62);
 
 // 호스트 바이트 순서를 네트워크 바이트 순서(bif endian)로 변경
-#define WR32(off, v)                    \
-	do {                                \
-		uint32_t _v = htonl(v);         \
-		memcpy(fixed + (off), &_v, 4);  \
+#define WR32(off, v)                                                                               \
+	do {                                                                                       \
+		uint32_t _v = htonl(v);                                                            \
+		memcpy(fixed + (off), &_v, 4);                                                     \
 	} while (0)
 
 		// 오프셋  크기    내용
