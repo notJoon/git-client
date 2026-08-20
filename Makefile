@@ -53,6 +53,7 @@ test: build ## Run tests
 	./$(OBJECT_TEST)
 	./$(REFS_TEST)
 	./$(INDEX_TEST)
+	sh tests/test_cli.sh "$(abspath $(BUILD)/$(BIN))"
 
 $(SHA1_TEST): tests/test_sha1.c sha1.c sha1.h
 	@mkdir -p $(dir $@)
